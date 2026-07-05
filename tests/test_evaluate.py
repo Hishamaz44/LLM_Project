@@ -1,0 +1,71 @@
+import debate_system.evaluate as ev
+from debate_system.config import Config
+from debate_system.debate import RoundContent, _opening_prompt, _rebuttal_prompt
+
+
+def test_debater_prompts_ask_for_the_target_length():
+    assert "60 words" in _opening_prompt("topic", "FOR", 60)
+    assert "120 words" in _rebuttal_prompt("topic", "FOR", "my opening", "their opening", 120)
+
+
+def _cfg(length_targets):
+    return Config(
+        pro_model="m",
+        con_model="m",
+        homogeneous_judge_model="h",
+        heterogeneous_judge_models=["a", "b", "c"],
+        length_targets=length_targets,
+    )
+
+
+# Fixed panel aggregation so the record-building logic can be tested without any network.
+_FAKE_AGG = {
+    "debater1_avg": {"logic": 8.0, "evidence": 8.0, "fairness": 8.0},
+    "debater2_avg": {"logic": 6.0, "evidence": 6.0, "fairness": 6.0},
+    "panel_winner": "Debater 1",
+}
+
+
+def _patch_panel(monkeypatch):
+    monkeypatch.setattr(ev, "run_panel", lambda *a, **k: [])
+    monkeypatch.setattr(ev, "aggregate_panel", lambda scores: _FAKE_AGG)
+
+
+def test_run_all_conditions_emits_one_record_per_length_order_panel(monkeypatch):
+    _patch_panel(monkeypatch)
+    rc = RoundContent(
+        round_num=1,
+        pro_texts={60: "pro sixty words here", 120: "pro one twenty words here now yes"},
+        con_texts={60: "con sixty words", 120: "con one twenty words here"},
+    )
+    records = ev.run_all_conditions("t01", "topic", rc, _cfg([60, 120]))
+
+    # 2 lengths x 2 orders x 2 panels
+    assert len(records) == 8
+    assert {r["length_target"] for r in records} == {60, 120}
+
+
+def test_run_all_conditions_logs_the_actual_generated_word_counts(monkeypatch):
+    _patch_panel(monkeypatch)
+    rc = RoundContent(
+        round_num=1,
+        pro_texts={60: "pro sixty words here"},  # 4 words
+        con_texts={60: "con sixty words"},  # 3 words
+    )
+    r = ev.run_all_conditions("t01", "topic", rc, _cfg([60]))[0]
+    assert r["pro_word_count"] == 4
+    assert r["con_word_count"] == 3
+
+
+def test_run_all_conditions_maps_debater_slots_back_to_pro_con_per_order(monkeypatch):
+    _patch_panel(monkeypatch)  # debater1 scores 8s and wins; debater2 scores 6s
+    rc = RoundContent(round_num=1, pro_texts={60: "a b c"}, con_texts={60: "d e f"})
+    records = ev.run_all_conditions("t01", "topic", rc, _cfg([60]))
+
+    pro_first = next(r for r in records if r["order"] == "pro_first")
+    assert pro_first["pro_avg"]["logic"] == 8.0  # debater1 == pro when pro is shown first
+    assert pro_first["panel_winner"] == "pro"
+
+    con_first = next(r for r in records if r["order"] == "con_first")
+    assert con_first["pro_avg"]["logic"] == 6.0  # debater1 == con when con is shown first
+    assert con_first["panel_winner"] == "con"

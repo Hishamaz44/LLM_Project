@@ -1,0 +1,8 @@
+.env
+cache.json
+results/*.jsonl
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/

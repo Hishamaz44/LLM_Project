@@ -1,0 +1,27 @@
+# Fill these in with real OpenRouter model IDs
+pro_model: "google/gemini-3.5-flash"
+con_model: "mistralai/mistral-small-2603"
+
+# Homogeneous panel: this one model is called 3x (with temperature + a slot marker
+# so the 3 calls are independent samples, not 3 copies of one response).
+homogeneous_judge_model: "google/gemini-3.5-flash"
+
+# Heterogeneous panel: MUST be 3 DISTINCT, valid OpenRouter model IDs, one judge call
+# each. If these are all the same model, the heterogeneous panel becomes identical to the
+# homogeneous one and the core homogeneous-vs-heterogeneous comparison is meaningless.
+# NOTE: "google/gemini-3.5-flash" does not match OpenRouter's naming — verify every ID
+# against https://openrouter.ai/models before a real run (e.g. google/gemini-flash-1.5,
+# openai/gpt-4o-mini, anthropic/claude-3.5-haiku).
+heterogeneous_judge_models:
+  - "google/gemini-3.1-flash-lite"
+  - "google/gemini-3.5-flash"
+  - "openai/gpt-5.4-mini"
+
+rounds: 2
+# Each debater argues its side once per target length (words). Judged as same-length pairs
+# (60 vs 60, 120 vs 120, 180 vs 180); the experiment looks for scores climbing with length.
+length_targets: [60, 120, 180]
+debater_max_tokens: 500
+debater_temperature: 0.2
+judge_max_tokens: 1200
+judge_temperature: 0.7
