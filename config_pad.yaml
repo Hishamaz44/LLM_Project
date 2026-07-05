@@ -1,0 +1,21 @@
+# Padding condition: same models/topics/judges as config.yaml, but the shortest argument is
+# written once and then expanded to the longer lengths WITHOUT adding new content. Compare the
+# length score-climb from this run against a normal (generate) run: the climb here is pure
+# verbosity bias, since content is held fixed and only word count grows.
+for_debater_model: "google/gemini-3.5-flash"
+against_debater_model: "mistralai/mistral-small-2603"
+
+homogeneous_judge_model: "google/gemini-3.5-flash"
+
+heterogeneous_judge_models:
+  - "google/gemini-3.1-flash-lite"
+  - "google/gemini-3.5-flash"
+  - "openai/gpt-5.4-mini"
+
+rounds: 2
+length_targets: [60, 120, 180]
+length_mode: "pad"
+debater_max_tokens: 500
+debater_temperature: 0.2
+judge_max_tokens: 1200
+judge_temperature: 0.7

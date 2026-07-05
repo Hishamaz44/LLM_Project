@@ -61,63 +61,211 @@ st.caption(f"Debater models: {models}")
 
 # --- Headline summary --------------------------------------------------------------
 s = analysis.summary(df)
+st.caption("At-a-glance headline numbers — each one is explained in full in its section below.")
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Topic × rounds", s["topic_rounds"])
-c2.metric("Panel evaluations", s["total_evaluations"])
-c3.metric("Order bias (first − second)", f"{s['order_bias_first_minus_second']:+.2f}")
-c4.metric("Winner flip rate", f"{s['winner_flip_rate']:.0%}")
+c1.metric(
+    "Debates analyzed",
+    s["topic_rounds"],
+    help="Distinct topic-and-round pairs. Each is judged under every length × order × panel condition.",
+)
+c2.metric(
+    "Judge evaluations",
+    s["total_evaluations"],
+    help="Total panel judgments logged — one per length × order × panel × debate.",
+)
+c3.metric(
+    "First-position advantage",
+    f"{s['order_bias_first_minus_second']:+.2f}",
+    help="Average points the argument shown FIRST scores above the one shown SECOND (out of 30). "
+    "0 = no order bias; positive = being shown first helps. Detailed in section 1.",
+)
+c4.metric(
+    "Winner-flip rate",
+    f"{s['winner_flip_rate']:.0%}",
+    help="How often the panel's winner changes just because we swap which argument is shown first. "
+    "0% = order never decides the winner. Detailed in section 1.",
+)
 
 # --- 1. Order effect ---------------------------------------------------------------
-st.header("1. Order effect")
-st.caption(
-    "If judges were unbiased, the argument shown first should score the same as the one "
-    "shown second, and the winner shouldn't flip just because we swap which side is first."
+st.header("1. Order effect — does being shown first change the score?")
+st.markdown(
+    "Every debate is judged **twice**: once with the FOR argument shown first, once with the "
+    "AGAINST argument shown first. The arguments themselves are identical both times — only their "
+    "**position** changes. So a fair panel should give an argument the same score whether it comes "
+    "first or second, and should pick the same winner either way. Anything we see here is therefore "
+    "caused by **position alone**, not by what the arguments actually say.\n\n"
+    "Each argument is scored out of **30** — three criteria (logic, evidence, fairness) at 1–10 "
+    "each, averaged across the three judges."
 )
+
 oe = analysis.order_effect(df)
-st.write(
-    f"Average (first − second) total score: **{oe['first_minus_second']:+.2f}**  "
-    "— 0 = no order bias; positive = judges favor whichever argument is shown first."
+o1, o2 = st.columns(2)
+o1.metric(
+    "First-position advantage",
+    f"{oe['first_minus_second']:+.2f}",
+    help="Average score of the first-shown argument minus the second-shown one (out of 30).",
 )
-st.dataframe(oe["by_order"], use_container_width=True)
+o2.metric(
+    "Winner-flip rate",
+    f"{analysis.flip_rate(df):.0%}",
+    help="Share of debates whose winner changes when we swap which side is shown first.",
+)
+st.caption(
+    "**First-position advantage** near **0** means order didn't move the scores; a **positive** "
+    "value means the first-shown argument was favored. **Winner-flip rate** near **0%** means the "
+    "same side wins regardless of order (fair judges); a **high** rate means order alone can flip "
+    "who wins — the strongest sign of order bias."
+)
+
+# Plain-language version of the per-ordering breakdown: rename the jargon index/columns and add
+# an explicit "advantage" column so the first-vs-second gap is readable without decoding the labels.
+by_order = oe["by_order"].rename(
+    index={"for_first": "FOR shown first", "against_first": "AGAINST shown first"},
+    columns={
+        "first_shown_avg_total": "Score of 1st-shown argument",
+        "second_shown_avg_total": "Score of 2nd-shown argument",
+    },
+)
+by_order["Advantage to 1st slot (1st − 2nd)"] = (
+    by_order["Score of 1st-shown argument"] - by_order["Score of 2nd-shown argument"]
+)
+by_order.index.name = "Ordering"
+st.markdown("**First slot vs second slot, in each ordering** (scores out of 30):")
+st.dataframe(by_order.round(2), use_container_width=True)
+st.caption(
+    "Each row is the same debate run in one ordering; **Advantage** is how much the first slot beat "
+    "the second. Three patterns to look for:\n"
+    "- **Positive in both rows** → the first slot wins whoever sits there = real **order bias**.\n"
+    "- **Near 0 in both rows** → position didn't matter = judges are **order-fair**.\n"
+    "- **Opposite signs** (one +, one −) → *not* order bias but a **side effect**: one side scores "
+    "higher wherever it's placed, so the two rows cancel out in the small headline number above."
+)
 
 # --- 2. Length effect --------------------------------------------------------------
-st.header("2. Length effect")
-st.caption(
-    "Each pair is length-matched (both sides written to the same word budget), so verbosity "
-    "bias shows up as the overall score climbing as the arguments get longer — not as a "
-    "PRO/CON gap. Does the mean score rise from the shortest target to the longest?"
+st.header("2. Length effect — do longer arguments score higher?")
+st.markdown(
+    "In each pair both sides are written to the **same word budget** (60 vs 60, 120 vs 120, "
+    "180 vs 180), so length can never help one side beat the other. Instead, a preference for "
+    "longer writing shows up as the **overall score level rising** as the shared length grows. "
+    "If the judges only cared about substance, the average score would stay flat across the "
+    "three lengths.\n\n"
+    "One honest caveat: a longer argument can genuinely *say more*, so a rising line isn't proof "
+    "of bias on its own — that's why we look for a steady climb across all three lengths, and why "
+    "the **padding run** (same content, only the length changes) is the cleaner test."
 )
 le = analysis.length_effect(df)
 lc1, lc2, lc3 = st.columns(3)
-lc1.metric("corr(length, score)", f"{le['corr_length_score']:+.2f}")
-lc2.metric("score climb (longest − shortest)", f"{le['score_climb']:+.2f}")
-lc3.metric("mean words off target", f"{le['mean_target_miss']:.1f}")
+lc1.metric(
+    "Score gain, shortest → longest",
+    f"{le['score_climb']:+.2f}",
+    help="Average score at the longest length minus the average at the shortest (out of 30). "
+    "Positive = longer arguments scored higher. This is the headline length-bias number.",
+)
+lc2.metric(
+    "Length–score correlation",
+    f"{le['corr_length_score']:+.2f}",
+    help="How consistently score tracks length, from −1 to +1. Near +1 = score rises at every "
+    "length step (a steady bias); near 0 = length and score are unrelated; negative = longer "
+    "scored lower.",
+)
+lc3.metric(
+    "Avg. words off the target",
+    f"{le['mean_target_miss']:.1f}",
+    help="On average, how far the arguments landed from the word budget they were told to hit — "
+    "a sanity check that the length control worked. Small = the models obeyed the targets.",
+)
 
 if len(le["by_length"]) > 1:
-    st.caption("Mean score (both debaters) at each target length — a rising line = length bias.")
-    st.bar_chart(le["by_length"])
+    st.markdown("**Average score at each argument length** (out of 30) — a rising line means length bias:")
+    length_chart = le["by_length"].rename("Average score (out of 30)")
+    length_chart.index.name = "Argument length (words)"
+    st.bar_chart(length_chart)
 
 # --- 3. Panel diversity ------------------------------------------------------------
-st.header("3. Does a diverse judge panel reduce bias?")
-st.caption(
-    "Order-flip rate and length bias (score climb with length), broken down by a "
-    "homogeneous panel (1 model ×3) vs a heterogeneous one (3 different models)."
+st.header("3. Panel diversity — does using different judge models cancel out bias?")
+st.markdown(
+    "This is the core question of the project. Three **identical** judges tend to share the same "
+    "blind spots, so their biases reinforce each other. Three **different** judges may each be "
+    "biased in their own way, so averaging them could partly cancel the bias out. To test that, "
+    "we measure the **same two biases from sections 1 and 2** separately for each kind of panel."
 )
+st.markdown(
+    "**How to read the three columns:**\n"
+    "- **Order bias (winner-flip rate):** how often the panel's winner changes just because we "
+    "swap which argument is shown first (section 1). It is the share of debates where order alone "
+    "decided the outcome. **Lower is better** — 0% means order never changed the winner.\n"
+    "- **Length bias (score gain by length):** how many points (out of 30) the average score rises "
+    "from the shortest argument to the longest (section 2). **Closer to 0 is better** — a large "
+    "positive number means longer writing was rewarded for its own sake.\n"
+    "- **Length–score correlation:** how *consistently* score tracks length, on a −1 to +1 scale. "
+    "**Closer to 0 is better** — near +1 means the score climbs at every length step (a steady, "
+    "reliable bias rather than noise)."
+)
+
 pc = analysis.panel_comparison(df)
-st.dataframe(pc, use_container_width=True)
+panel_labels = {
+    "homogeneous": "Homogeneous panel (same model ×3)",
+    "heterogeneous": "Heterogeneous panel (3 different models)",
+}
+# Build the columns as plain lists (not Series) so the renamed index below isn't reindexed
+# against the original panel_type labels — passing a mismatched index= to Series values NaNs them.
+pc_display = pd.DataFrame(
+    {
+        "Order bias (winner-flip rate)": [
+            f"{x:.0%}" if pd.notna(x) else "—" for x in pc["flip_rate"]
+        ],
+        "Length bias (score gain by length)": [
+            f"{x:+.2f}" if pd.notna(x) else "—" for x in pc["length_score_climb"]
+        ],
+        "Length–score correlation": [
+            f"{x:+.2f}" if pd.notna(x) else "—" for x in pc["corr_length_score"]
+        ],
+    },
+    index=[panel_labels.get(p, p) for p in pc.index],
+)
+pc_display.index.name = "Judge panel"
+st.dataframe(pc_display, use_container_width=True)
+st.caption(
+    "**A diverse panel helps** if the heterogeneous row shows a lower winner-flip rate, a score "
+    "gain closer to 0, and a correlation closer to 0 than the homogeneous row. If the two rows are "
+    "about the same, mixing judge models didn't reduce bias in this run."
+)
+
 if "flip_rate" in pc.columns:
-    st.bar_chart(pc[["flip_rate"]])
+    st.markdown("**Order bias by panel** (winner-flip rate — a shorter bar means less order bias):")
+    flip_chart = pd.DataFrame(
+        {"Winner-flip rate": pc["flip_rate"].values},
+        index=[panel_labels.get(p, p) for p in pc.index],
+    )
+    flip_chart.index.name = "Judge panel"
+    st.bar_chart(flip_chart)
 
 # --- 4. Drill into a single evaluation ---------------------------------------------
-st.header("4. Drill into a single evaluation")
-st.caption("Inspect the individual judges' raw scores for one condition to see where they disagreed.")
+st.header("4. Inspect one evaluation — where did the judges (dis)agree?")
+st.markdown(
+    "Pick one exact condition below to see the **raw score each of the three judges gave**, before "
+    "any averaging. Every judge scores both arguments from 1–10 on logic, evidence, and fairness, "
+    "then names a winner — so this is where you can see whether the panel agreed or split."
+)
 
 d1, d2, d3, d4, d5 = st.columns(5)
 d_topic = d1.selectbox("Topic", sorted(df["topic_id"].unique()))
 d_round = d2.selectbox("Round", sorted(int(r) for r in df["round_num"].unique()))
-d_length = d3.selectbox("Length target", sorted(int(t) for t in df["length_target"].unique()))
-d_order = d4.selectbox("Order", sorted(df["order"].unique()))
-d_panel = d5.selectbox("Panel", sorted(df["panel_type"].unique()))
+d_length = d3.selectbox(
+    "Argument length",
+    sorted(int(t) for t in df["length_target"].unique()),
+    format_func=lambda t: f"{t} words",
+)
+d_order = d4.selectbox(
+    "Presentation order",
+    sorted(df["order"].unique()),
+    format_func=lambda o: {"for_first": "FOR shown first", "against_first": "AGAINST shown first"}.get(o, o),
+)
+d_panel = d5.selectbox(
+    "Judge panel",
+    sorted(df["panel_type"].unique()),
+    format_func=lambda p: {"homogeneous": "Homogeneous (same model ×3)", "heterogeneous": "Heterogeneous (3 models)"}.get(p, p),
+)
 
 match = df[
     (df["topic_id"] == d_topic)
@@ -131,8 +279,8 @@ if match.empty:
 else:
     row = match.iloc[0]
     st.write(
-        f"For Debater words: **{row['for_debater_word_count']}** · "
-        f"Against Debater words: **{row['against_debater_word_count']}** · "
+        f"FOR argument: **{row['for_debater_word_count']} words** · "
+        f"AGAINST argument: **{row['against_debater_word_count']} words** · "
         f"panel winner: **{row['panel_winner'].capitalize()}**"
     )
     for_is_first = d_order == "for_first"
@@ -145,10 +293,10 @@ else:
     judges = pd.DataFrame(
         [
             {
-                "judge": j["judge_model"],
-                **{f"For Debater {dim}": (j["debater1"] if for_is_first else j["debater2"])[dim] for dim in analysis.DIMENSIONS},
-                **{f"Against Debater {dim}": (j["debater2"] if for_is_first else j["debater1"])[dim] for dim in analysis.DIMENSIONS},
-                "winner": winner_label[j["winner"]],
+                "Judge model": j["judge_model"],
+                **{f"FOR: {dim}": (j["debater1"] if for_is_first else j["debater2"])[dim] for dim in analysis.DIMENSIONS},
+                **{f"AGAINST: {dim}": (j["debater2"] if for_is_first else j["debater1"])[dim] for dim in analysis.DIMENSIONS},
+                "Winner": winner_label[j["winner"]],
             }
             for j in row["judges_raw"]
         ]

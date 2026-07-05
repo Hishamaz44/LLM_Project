@@ -19,6 +19,12 @@ class Config:
     # truncating a longer one afterwards, so short arguments are whole, not amputated. The
     # experiment then checks whether judge scores climb as the (length-matched) pair grows.
     length_targets: list[int] = field(default_factory=lambda: [60, 120, 180])
+    # How the different lengths are produced. "generate": each target is an independent, freshly
+    # written argument (so content grows with length — the natural condition). "pad": the shortest
+    # target is written once and then expanded to the longer targets without adding new content,
+    # holding content fixed so only word count varies. Comparing the score climb across the two
+    # modes separates true verbosity bias from "longer arguments legitimately say more".
+    length_mode: str = "generate"
     debater_max_tokens: int = 350
     debater_temperature: float = 0.2
     judge_max_tokens: int = 300
@@ -30,6 +36,8 @@ class Config:
             raise ValueError("heterogeneous_judge_models must contain exactly 3 model IDs")
         if not self.length_targets:
             raise ValueError("length_targets must contain at least one target word count")
+        if self.length_mode not in ("generate", "pad"):
+            raise ValueError("length_mode must be 'generate' or 'pad'")
 
 
 # Reads a YAML file from disk and builds a Config from it.
