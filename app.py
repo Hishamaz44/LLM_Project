@@ -56,7 +56,7 @@ if df.empty:
     st.warning("No rows match the current filters.")
     st.stop()
 
-models = ", ".join(sorted(set(df["pro_model"]) | set(df["con_model"])))
+models = ", ".join(sorted(set(df["for_debater_model"]) | set(df["against_debater_model"])))
 st.caption(f"Debater models: {models}")
 
 # --- Headline summary --------------------------------------------------------------
@@ -131,17 +131,24 @@ if match.empty:
 else:
     row = match.iloc[0]
     st.write(
-        f"PRO words: **{row['pro_word_count']}** · CON words: **{row['con_word_count']}** · "
-        f"panel winner: **{row['panel_winner']}**"
+        f"For Debater words: **{row['for_debater_word_count']}** · "
+        f"Against Debater words: **{row['against_debater_word_count']}** · "
+        f"panel winner: **{row['panel_winner'].capitalize()}**"
     )
-    pro_is_first = d_order == "pro_first"
+    for_is_first = d_order == "for_first"
+    # The judge's raw verdict is stance-blind (Debater 1/2 = shown first/second). Translate it
+    # to a stance for display so the winner column matches the For/Against score columns.
+    winner_label = (
+        {"Debater 1": "For", "Debater 2": "Against", "Tie": "Tie"} if for_is_first
+        else {"Debater 1": "Against", "Debater 2": "For", "Tie": "Tie"}
+    )
     judges = pd.DataFrame(
         [
             {
                 "judge": j["judge_model"],
-                **{f"PRO {dim}": (j["debater1"] if pro_is_first else j["debater2"])[dim] for dim in analysis.DIMENSIONS},
-                **{f"CON {dim}": (j["debater2"] if pro_is_first else j["debater1"])[dim] for dim in analysis.DIMENSIONS},
-                "winner": j["winner"],
+                **{f"For Debater {dim}": (j["debater1"] if for_is_first else j["debater2"])[dim] for dim in analysis.DIMENSIONS},
+                **{f"Against Debater {dim}": (j["debater2"] if for_is_first else j["debater1"])[dim] for dim in analysis.DIMENSIONS},
+                "winner": winner_label[j["winner"]],
             }
             for j in row["judges_raw"]
         ]

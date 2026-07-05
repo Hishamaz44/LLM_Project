@@ -9,8 +9,8 @@ import yaml
 # Holds every tunable experiment parameter and all model IDs used in a run.
 @dataclass
 class Config:
-    pro_model: str
-    con_model: str
+    for_debater_model: str
+    against_debater_model: str
     homogeneous_judge_model: str
     heterogeneous_judge_models: list[str]
     rounds: int = 2

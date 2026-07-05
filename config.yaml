@@ -1,6 +1,6 @@
 # Fill these in with real OpenRouter model IDs
-pro_model: "google/gemini-3.5-flash"
-con_model: "mistralai/mistral-small-2603"
+for_debater_model: "google/gemini-3.5-flash"
+against_debater_model: "mistralai/mistral-small-2603"
 
 # Homogeneous panel: this one model is called 3x (with temperature + a slot marker
 # so the 3 calls are independent samples, not 3 copies of one response).

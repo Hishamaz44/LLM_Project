@@ -20,9 +20,9 @@ cp .env.example .env   # then fill in OPENROUTER_API_KEY
 
 Edit `config.yaml` and set real OpenRouter model IDs (e.g. `openai/gpt-4o-mini`,
 `anthropic/claude-3.5-haiku`, `google/gemini-flash-1.5`,
-`meta-llama/llama-3.1-8b-instruct`). `pro_model`/`con_model` default to the same model so
-any score asymmetry the experiment finds is attributable to presentation, not debater
-capability — change this only for a secondary comparison. **`heterogeneous_judge_models`
+`meta-llama/llama-3.1-8b-instruct`). `for_debater_model`/`against_debater_model` default to
+the same model so any score asymmetry the experiment finds is attributable to presentation,
+not debater capability — change this only for a secondary comparison. **`heterogeneous_judge_models`
 must be 3 distinct IDs** — if they're all the same model the heterogeneous panel collapses
 into the homogeneous one and the central comparison is meaningless. Verify every ID
 against <https://openrouter.ai/models> before a real run.

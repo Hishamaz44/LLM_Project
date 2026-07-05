@@ -15,7 +15,7 @@ DIMENSIONS = ("logic", "evidence", "fairness")
 
 
 # Loads results.jsonl into a DataFrame and adds the derived columns the metrics use:
-# per-debater score totals, a per-row mean score (both debaters), the pro-con word/score
+# per-debater score totals, a per-row mean score (both debaters), the For/Against word/score
 # edges, and how far the generated arguments landed from their length target.
 def load_results(path: str | Path) -> pd.DataFrame:
     records = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
@@ -27,19 +27,24 @@ def load_results(path: str | Path) -> pd.DataFrame:
             f"{path} uses the retired length_mode schema (natural/equalized). It predates "
             "the length-target redesign — regenerate it with `python run_experiment.py`."
         )
-    for prefix in ("debater1_avg", "debater2_avg", "pro_avg", "con_avg"):
+    if "pro_avg.logic" in df.columns or "pro_word_count" in df.columns:
+        raise ValueError(
+            f"{path} uses the retired pro/con schema. It predates the For/Against-debater "
+            "rename — regenerate it with `python run_experiment.py` (or migrate the keys)."
+        )
+    for prefix in ("first_shown_avg", "second_shown_avg", "for_debater_avg", "against_debater_avg"):
         df[f"{prefix}_total"] = sum(df[f"{prefix}.{dim}"] for dim in DIMENSIONS)
     # Since each judged pair is length-matched, length bias moves the *overall* score level,
     # so we track the mean of both debaters' totals per row.
-    df["mean_score"] = (df["pro_avg_total"] + df["con_avg_total"]) / 2
-    df["word_count_diff"] = df["pro_word_count"] - df["con_word_count"]
-    df["score_diff"] = df["pro_avg_total"] - df["con_avg_total"]
+    df["mean_score"] = (df["for_debater_avg_total"] + df["against_debater_avg_total"]) / 2
+    df["word_count_diff"] = df["for_debater_word_count"] - df["against_debater_word_count"]
+    df["score_diff"] = df["for_debater_avg_total"] - df["against_debater_avg_total"]
     # How far the two arguments landed from the length budget they were asked to hit — a
     # residual that quantifies how well the debater models obeyed the target.
     if "length_target" in df.columns:
         df["target_miss"] = (
-            (df["pro_word_count"] - df["length_target"]).abs()
-            + (df["con_word_count"] - df["length_target"]).abs()
+            (df["for_debater_word_count"] - df["length_target"]).abs()
+            + (df["against_debater_word_count"] - df["length_target"]).abs()
         ) / 2
     return df
 
@@ -47,8 +52,8 @@ def load_results(path: str | Path) -> pd.DataFrame:
 # Order (position) bias: how much the first-shown argument is favored, and the per-slot
 # average totals. 0 = no bias; positive = judges favor whichever argument is shown first.
 def order_effect(df: pd.DataFrame) -> dict:
-    first_minus_second = (df["debater1_avg_total"] - df["debater2_avg_total"]).mean()
-    by_order = df.groupby("order")[["debater1_avg_total", "debater2_avg_total"]].mean()
+    first_minus_second = (df["first_shown_avg_total"] - df["second_shown_avg_total"]).mean()
+    by_order = df.groupby("order")[["first_shown_avg_total", "second_shown_avg_total"]].mean()
     return {"first_minus_second": float(first_minus_second), "by_order": by_order}
 
 
@@ -61,8 +66,8 @@ def winner_flips(df: pd.DataFrame) -> pd.DataFrame:
         values="panel_winner",
         aggfunc="first",
     )
-    if "pro_first" in pivot.columns and "con_first" in pivot.columns:
-        pivot["flipped"] = pivot["pro_first"] != pivot["con_first"]
+    if "for_first" in pivot.columns and "against_first" in pivot.columns:
+        pivot["flipped"] = pivot["for_first"] != pivot["against_first"]
     else:
         # Only one order present (e.g. filtered) — nothing can flip.
         pivot["flipped"] = False
@@ -76,7 +81,7 @@ def flip_rate(df: pd.DataFrame) -> float:
 
 
 # Length (verbosity) bias. Each judged pair is length-matched, so bias shows up as the
-# overall score level rising with the shared argument length — not as a PRO/CON gap.
+# overall score level rising with the shared argument length — not as a For/Against gap.
 # Reports the mean score at each length target, the climb from the shortest target to the
 # longest, the length-vs-score correlation, and how far arguments missed their target.
 def length_effect(df: pd.DataFrame) -> dict:

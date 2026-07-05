@@ -1,10 +1,10 @@
 """Builds the length x order x panel-type condition matrix for one debate round and runs
 the judge panel for each combination, producing flat dicts ready for results.jsonl.
 
-Length is a *generation-time* variable now: each round already holds a PRO/CON argument
+Length is a *generation-time* variable now: each round already holds a For/Against argument
 written to each target word count (see debate.RoundContent), so here we simply judge each
 length as its own length-matched pair — no truncation. Both sides share the target length in
-a given pair, so verbosity bias shows up as scores rising with length, not as a PRO/CON gap.
+a given pair, so verbosity bias shows up as scores rising with length, not as a For/Against gap.
 """
 
 from .config import Config
@@ -17,9 +17,11 @@ def _word_count(text: str) -> int:
     return len(text.split())
 
 
+# Maps the judge's stance-blind verdict ("Debater 1"/"Debater 2" = shown first/second) back to
+# a stance ("for"/"against"), which depends on which side was placed first for this pairing.
 _WINNER_MAP = {
-    "pro_first": {"Debater 1": "pro", "Debater 2": "con", "Tie": "tie"},
-    "con_first": {"Debater 1": "con", "Debater 2": "pro", "Tie": "tie"},
+    "for_first": {"Debater 1": "for", "Debater 2": "against", "Tie": "tie"},
+    "against_first": {"Debater 1": "against", "Debater 2": "for", "Tie": "tie"},
 }
 
 
@@ -37,21 +39,22 @@ def run_all_conditions(
     }
 
     records = []
-    for length_target in sorted(round_content.pro_texts):
-        pro_text = round_content.pro_texts[length_target]
-        con_text = round_content.con_texts[length_target]
-        for order in ("pro_first", "con_first"):
+    for length_target in sorted(round_content.for_debater_texts):
+        for_text = round_content.for_debater_texts[length_target]
+        against_text = round_content.against_debater_texts[length_target]
+        for order in ("for_first", "against_first"):
             text_first, text_second = (
-                (pro_text, con_text) if order == "pro_first" else (con_text, pro_text)
+                (for_text, against_text) if order == "for_first" else (against_text, for_text)
             )
             for panel_type, judge_models in panels.items():
                 scores = run_panel(topic_text, text_first, text_second, judge_models, config)
                 agg = aggregate_panel(scores)
 
-                if order == "pro_first":
-                    pro_avg, con_avg = agg["debater1_avg"], agg["debater2_avg"]
+                # agg["debater1_avg"]/["debater2_avg"] are the shown-first/shown-second slots.
+                if order == "for_first":
+                    for_debater_avg, against_debater_avg = agg["debater1_avg"], agg["debater2_avg"]
                 else:
-                    pro_avg, con_avg = agg["debater2_avg"], agg["debater1_avg"]
+                    for_debater_avg, against_debater_avg = agg["debater2_avg"], agg["debater1_avg"]
                 panel_winner = _WINNER_MAP[order][agg["panel_winner"]]
 
                 records.append(
@@ -59,20 +62,23 @@ def run_all_conditions(
                         "topic_id": topic_id,
                         "round_num": round_content.round_num,
                         "order": order,
-                        # The word budget both sides were asked to hit for this pair. The
-                        # actual lengths are in pro_word_count/con_word_count — compare them
-                        # to length_target to see how well the models obeyed the budget.
+                        # The word budget both sides were asked to hit for this pair. The actual
+                        # lengths are in for_debater_word_count/against_debater_word_count — compare
+                        # them to length_target to see how well the models obeyed the budget.
                         "length_target": length_target,
                         "panel_type": panel_type,
-                        "pro_model": config.pro_model,
-                        "con_model": config.con_model,
-                        "pro_word_count": _word_count(pro_text),
-                        "con_word_count": _word_count(con_text),
-                        "debater1_avg": agg["debater1_avg"],
-                        "debater2_avg": agg["debater2_avg"],
-                        "pro_avg": pro_avg,
-                        "con_avg": con_avg,
+                        "for_debater_model": config.for_debater_model,
+                        "against_debater_model": config.against_debater_model,
+                        "for_debater_word_count": _word_count(for_text),
+                        "against_debater_word_count": _word_count(against_text),
+                        # Position slots (shown first / shown second) — feed the order-bias metric.
+                        "first_shown_avg": agg["debater1_avg"],
+                        "second_shown_avg": agg["debater2_avg"],
+                        # Stance-mapped scores — feed the length/panel metrics.
+                        "for_debater_avg": for_debater_avg,
+                        "against_debater_avg": against_debater_avg,
                         "panel_winner": panel_winner,
+                        # Raw per-judge scores stay stance-blind (Debater 1/2 = shown first/second).
                         "judges_raw": [
                             {
                                 "judge_model": s.judge_model,
