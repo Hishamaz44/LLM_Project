@@ -128,9 +128,66 @@ def panel_comparison(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("panel_type")
 
 
+# Nepotism (self-preference) bias: when a judge's model also authored one of the arguments,
+# does that judge score the argument higher than the *other* judges score the exact same text?
+# For each argument we split the panel into the "self" judge (same model as the author) and the
+# "peer" judges (different models) and take (self mean − peer mean). Because peers grade the
+# identical text, a positive delta is self-preference, not just "this model wrote a better
+# argument". Only pairings with both a self judge and ≥1 peer judge count (so a homogeneous
+# panel, where every judge shares the author's model or none do, contributes nothing).
+def self_preference_effect(df: pd.DataFrame) -> dict:
+    comparisons = []  # (author_model, self_minus_peer_delta)
+    for _, row in df.iterrows():
+        # Attribute each judge's slot score to the argument it graded (via the presentation order):
+        # in for_first rows Debater 1 is the For argument; in against_first rows it's the Against one.
+        per_arg = {"for": [], "against": []}  # arg -> list of (judge_model, total_score)
+        for j in row["judges_raw"]:
+            first_total = sum(j["debater1"][dim] for dim in DIMENSIONS)
+            second_total = sum(j["debater2"][dim] for dim in DIMENSIONS)
+            for_total, against_total = (
+                (first_total, second_total) if row["order"] == "for_first"
+                else (second_total, first_total)
+            )
+            per_arg["for"].append((j["judge_model"], for_total))
+            per_arg["against"].append((j["judge_model"], against_total))
+
+        authors = {"for": row["for_debater_model"], "against": row["against_debater_model"]}
+        for arg, scored in per_arg.items():
+            author = authors[arg]
+            self_scores = [t for model, t in scored if model == author]
+            peer_scores = [t for model, t in scored if model != author]
+            if self_scores and peer_scores:
+                delta = sum(self_scores) / len(self_scores) - sum(peer_scores) / len(peer_scores)
+                comparisons.append((author, delta))
+
+    if not comparisons:
+        return {
+            "delta": float("nan"),
+            "scored_self_higher_rate": float("nan"),
+            "n_comparisons": 0,
+            "by_model": pd.DataFrame(
+                columns=["self_preference_delta", "scored_self_higher_rate", "n"]
+            ),
+        }
+
+    cdf = pd.DataFrame(comparisons, columns=["model", "delta"])
+    by_model = cdf.groupby("model").agg(
+        self_preference_delta=("delta", "mean"),
+        scored_self_higher_rate=("delta", lambda s: float((s > 0).mean())),
+        n=("delta", "size"),
+    )
+    return {
+        "delta": float(cdf["delta"].mean()),
+        "scored_self_higher_rate": float((cdf["delta"] > 0).mean()),
+        "n_comparisons": int(len(cdf)),
+        "by_model": by_model,
+    }
+
+
 # The headline numbers used in the writeup/slides.
 def summary(df: pd.DataFrame) -> dict:
     le = length_effect(df)
+    sp = self_preference_effect(df)
     return {
         "topic_rounds": int(df[["topic_id", "round_num"]].drop_duplicates().shape[0]),
         "total_evaluations": int(len(df)),
@@ -138,4 +195,6 @@ def summary(df: pd.DataFrame) -> dict:
         "winner_flip_rate": flip_rate(df),
         "length_bias_climb": le["score_climb"],
         "length_bias_corr": le["corr_length_score"],
+        "self_preference_delta": sp["delta"],
+        "self_preference_comparisons": sp["n_comparisons"],
     }

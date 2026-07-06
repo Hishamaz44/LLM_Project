@@ -240,8 +240,66 @@ if "flip_rate" in pc.columns:
     flip_chart.index.name = "Judge panel"
     st.bar_chart(flip_chart)
 
-# --- 4. Drill into a single evaluation ---------------------------------------------
-st.header("4. Inspect one evaluation — where did the judges (dis)agree?")
+# --- 4. Nepotism (self-preference) bias --------------------------------------------
+st.header("4. Nepotism — do judges favour arguments written by their own model?")
+st.markdown(
+    "Some models take a turn as **both** a debater and a judge. Whenever a judge is grading an "
+    "argument written by **its own model**, we can ask a pointed question: does it score that "
+    "argument higher than the **other** judges — different models — score the *exact same text*? "
+    "Because the peer judges read the identical argument, any gap can't be blamed on the argument "
+    "being better written — it's the model **preferring its own work**.\n\n"
+    "This can only be measured when a model appears on **both** sides: as an author *and* as a judge "
+    "on a panel that also contains other models (the heterogeneous panel). Models that only judge, "
+    "or only debate, don't show up here."
+)
+
+sp = analysis.self_preference_effect(df)
+if sp["n_comparisons"] == 0:
+    st.info(
+        "No self-preference comparisons in the current selection. This metric needs a judge whose "
+        "model also authored an argument, together with at least one different-model judge grading "
+        "the same text — i.e. a heterogeneous panel where a judge model matches a debater model."
+    )
+else:
+    sp1, sp2, sp3 = st.columns(3)
+    sp1.metric(
+        "Self-preference Δ",
+        f"{sp['delta']:+.2f}",
+        help="Average points a judge gives its own model's argument above what peer judges give the "
+        "same text (out of 30). 0 = even-handed; positive = the model favours its own writing.",
+    )
+    sp2.metric(
+        "Scored own model higher",
+        f"{sp['scored_self_higher_rate']:.0%}",
+        help="Share of self-vs-peer comparisons where the model rated its own argument above the "
+        "peer average. 50% = no consistent lean; higher = it usually favours itself.",
+    )
+    sp3.metric(
+        "Comparisons",
+        sp["n_comparisons"],
+        help="How many self-vs-peer comparisons back these numbers. Small n = read them as a "
+        "proof-of-concept, not a firm finding.",
+    )
+    st.markdown("**Per model** — only models that both authored *and* judged appear (score out of 30):")
+    sp_display = pd.DataFrame(
+        {
+            "Self-preference Δ (out of 30)": [f"{x:+.2f}" for x in sp["by_model"]["self_preference_delta"]],
+            "Scored own model higher": [f"{x:.0%}" for x in sp["by_model"]["scored_self_higher_rate"]],
+            "Comparisons": [int(x) for x in sp["by_model"]["n"]],
+        },
+        index=sp["by_model"].index,
+    )
+    sp_display.index.name = "Model (author & judge)"
+    st.dataframe(sp_display, use_container_width=True)
+    st.caption(
+        "A **positive Δ** together with a **higher-than-50%** rate means the model consistently "
+        "inflates its own arguments relative to how rival judges score the identical text — the "
+        "signature of nepotism. Values near **0 / ~50%** mean the model judges its own work "
+        "even-handedly. Remember peers grade the *same* argument, so quality is already controlled for."
+    )
+
+# --- 5. Drill into a single evaluation ---------------------------------------------
+st.header("5. Inspect one evaluation — where did the judges (dis)agree?")
 st.markdown(
     "Pick one exact condition below to see the **raw score each of the three judges gave**, before "
     "any averaging. Every judge scores both arguments from 1–10 on logic, evidence, and fairness, "

@@ -26,12 +26,14 @@ cp .env.example .env   # then fill in OPENROUTER_API_KEY
 
 Edit `config.yaml` and set real OpenRouter model IDs (e.g. `openai/gpt-4o-mini`,
 `anthropic/claude-3.5-haiku`, `google/gemini-flash-1.5`,
-`meta-llama/llama-3.1-8b-instruct`). `for_debater_model`/`against_debater_model` may be the
-same or different models: all three bias metrics are measured *within* length-matched,
-order-swapped pairs, so they don't depend on which model wrote each side. Using two different
-debaters (as the shipped config does) just means the raw For-vs-Against score gap also reflects
-debater capability — which the dashboard flags as a "side effect," not order bias. Set both to
-the same model if you want that raw gap to be capability-neutral.
+`meta-llama/llama-3.1-8b-instruct`). The two debaters intentionally run on **different models**
+(`for_debater_model`/`against_debater_model`) so the arguments are genuinely varied rather than
+one model debating itself. This is safe because none of the bias metrics use the raw
+For-vs-Against score gap: they're all measured *within* length-matched, order-swapped pairs, so a
+capability difference between the two debaters is a constant that cancels out (the dashboard flags
+a side that scores higher wherever it's placed as a "side effect," not order bias). You can still
+set both to the same model if you want that raw gap to be capability-neutral, but it isn't
+required.
 
 **`heterogeneous_judge_models` must be 3 distinct IDs** — if they're all the same model the
 heterogeneous panel collapses into the homogeneous one and the central comparison is

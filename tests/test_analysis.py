@@ -93,3 +93,56 @@ def test_panel_comparison_splits_flip_rate_by_panel(tmp_path):
     pc = analysis.panel_comparison(_df(records, tmp_path))
     assert pc.loc["heterogeneous", "flip_rate"] == 1.0
     assert pc.loc["homogeneous", "flip_rate"] == 0.0
+
+
+# Builds a record with a custom multi-model judge panel, for the self-preference metric.
+# `judges` is a list of (judge_model, first_slot_total, second_slot_total).
+def _nep_rec(order, for_model, against_model, judges):
+    return {
+        "topic_id": "t01", "round_num": 1, "order": order, "length_target": 120,
+        "panel_type": "heterogeneous",
+        "for_debater_model": for_model, "against_debater_model": against_model,
+        "for_debater_word_count": 100, "against_debater_word_count": 100,
+        "first_shown_avg": _dims(0), "second_shown_avg": _dims(0),
+        "for_debater_avg": _dims(0), "against_debater_avg": _dims(0),
+        "panel_winner": "tie",
+        "judges_raw": [
+            {"judge_model": m, "debater1": _dims(ft), "debater2": _dims(st), "winner": "Tie"}
+            for (m, ft, st) in judges
+        ],
+    }
+
+
+def test_self_preference_detects_own_model_scoring_higher(tmp_path):
+    # For argument written by A; for_first so Debater 1 == For. Judge A scores For 10, peers C/D
+    # score the same argument 6 and 8 -> self 10 vs peer mean 7 -> delta +3.
+    rec = _nep_rec("for_first", "A", "B", [("A", 10, 5), ("C", 6, 5), ("D", 8, 5)])
+    sp = analysis.self_preference_effect(_df([rec], tmp_path))
+    assert sp["n_comparisons"] == 1
+    assert sp["delta"] == 3.0
+    assert sp["scored_self_higher_rate"] == 1.0
+    assert sp["by_model"].loc["A", "self_preference_delta"] == 3.0
+
+
+def test_self_preference_maps_scores_through_presentation_order(tmp_path):
+    # Against argument written by B; against_first so Debater 1 == Against. Judge B scores Against 9,
+    # peer C scores the same argument 5 -> delta +4. A never judges, so the For side yields nothing.
+    rec = _nep_rec("against_first", "A", "B", [("B", 9, 3), ("C", 5, 3)])
+    sp = analysis.self_preference_effect(_df([rec], tmp_path))
+    assert sp["n_comparisons"] == 1
+    assert sp["delta"] == 4.0
+    assert sp["by_model"].loc["B", "self_preference_delta"] == 4.0
+
+
+def test_self_preference_none_when_no_judge_authored(tmp_path):
+    rec = _nep_rec("for_first", "A", "B", [("C", 8, 8), ("D", 7, 7), ("E", 9, 9)])
+    sp = analysis.self_preference_effect(_df([rec], tmp_path))
+    assert sp["n_comparisons"] == 0
+    assert sp["by_model"].empty
+
+
+def test_self_preference_skips_when_no_peer_judge(tmp_path):
+    # Author A is also all three judges -> everyone is "self", no peer baseline -> nothing to compare.
+    rec = _nep_rec("for_first", "A", "B", [("A", 10, 5), ("A", 9, 5), ("A", 8, 5)])
+    sp = analysis.self_preference_effect(_df([rec], tmp_path))
+    assert sp["n_comparisons"] == 0
