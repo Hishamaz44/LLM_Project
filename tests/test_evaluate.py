@@ -69,3 +69,18 @@ def test_run_all_conditions_maps_debater_slots_back_to_for_against_per_order(mon
     against_first = next(r for r in records if r["order"] == "against_first")
     assert against_first["for_debater_avg"]["logic"] == 6.0  # debater1 == Against when Against is shown first
     assert against_first["panel_winner"] == "against"
+
+
+def test_run_all_conditions_output_identical_with_concurrency(monkeypatch):
+    # Fanning conditions out across workers must not change the records or their order.
+    _patch_panel(monkeypatch)
+    rc = RoundContent(
+        round_num=1,
+        for_debater_texts={60: "a b c", 120: "d e f g", 180: "h i j k l"},
+        against_debater_texts={60: "m n", 120: "o p q", 180: "r s t u"},
+    )
+    cfg = _cfg([60, 120, 180])
+    sequential = ev.run_all_conditions("t01", "topic", rc, cfg, jobs=1)
+    parallel = ev.run_all_conditions("t01", "topic", rc, cfg, jobs=4)
+    assert parallel == sequential  # same records, same order
+    assert len(sequential) == 3 * 2 * 2  # lengths x orders x panels

@@ -17,6 +17,7 @@ def run_experiment(
     out_path: str | Path,
     limit: int | None = None,
     report_path: str | Path | None = None,
+    jobs: int = 1,
 ) -> None:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -27,10 +28,10 @@ def run_experiment(
     with out_path.open("w") as f, MarkdownReport(report_path) as report:
         for i, topic_text in enumerate(topics):
             topic_id = f"t{i + 1:02d}"
-            debate = generate_debate(topic_id, topic_text, config)
+            debate = generate_debate(topic_id, topic_text, config, jobs=jobs)
             report.log_debate(topic_id, topic_text, debate)
             for round_content in debate.rounds:
-                records = run_all_conditions(topic_id, topic_text, round_content, config)
+                records = run_all_conditions(topic_id, topic_text, round_content, config, jobs=jobs)
                 report.log_round_result(round_content.round_num, records)
                 for record in records:
                     f.write(json.dumps(record) + "\n")

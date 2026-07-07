@@ -1,0 +1,20 @@
+# MEDIUM judge tier — padding mode.
+# Same models/topics as config_medium.yaml; content held fixed so only word count grows (the pure
+# verbosity-bias test). Prices are input $/M tokens (OpenRouter, 2026-07).
+for_debater_model: "google/gemini-3.5-flash"
+against_debater_model: "google/gemini-3.5-flash"
+
+homogeneous_judge_model: "mistralai/mistral-medium-3-5" # $1.5/M
+
+heterogeneous_judge_models:
+  - "google/gemini-3.5-flash" # $1.5/M
+  - "anthropic/claude-sonnet-5" # $2/M
+  - "mistralai/mistral-medium-3-5" # $1.5/M
+
+rounds: 2
+length_targets: [60, 120, 180]
+length_mode: "pad"
+debater_max_tokens: 2000
+debater_temperature: 0.2
+judge_max_tokens: 2000
+judge_temperature: 0.7

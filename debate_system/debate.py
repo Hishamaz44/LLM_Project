@@ -1,5 +1,6 @@
 """Generates the debate transcript: independent openings, then rebuttals."""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from .client import call_model
@@ -133,20 +134,33 @@ def _texts_for_target(
 # independent, length-matched mini-debate (a rebuttal at length L answers the opening at L),
 # so every judged pair is coherent and matched. In pad mode the shortest length is generated
 # once and expanded to the longer targets, so content is fixed and only word count varies.
-def generate_debate(topic_id: str, topic_text: str, config: Config) -> Debate:
+def generate_debate(topic_id: str, topic_text: str, config: Config, jobs: int = 1) -> Debate:
     # Pad mode writes the shortest-length pair once; every longer target is that same content
-    # expanded (see _texts_for_target), holding content fixed while length varies.
+    # expanded (see _texts_for_target), holding content fixed while length varies. This base must
+    # exist before the per-target work below, so it's computed up front (sequentially).
     base_texts = (
         _generate_at_length(topic_text, min(config.length_targets), config)
         if config.length_mode == "pad"
         else None
     )
 
+    # Each target's texts are independent once `base_texts` exists, so fan them out across `jobs`
+    # workers. Results are keyed by target and reassembled in config order below, so output is
+    # identical to the sequential path regardless of which target finishes first.
+    targets = list(config.length_targets)
+
+    def texts_for(target: int) -> tuple[str, str, str, str]:
+        return _texts_for_target(topic_text, target, base_texts, config)
+
+    if jobs > 1 and len(targets) > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            by_target = dict(zip(targets, pool.map(texts_for, targets)))
+    else:
+        by_target = {target: texts_for(target) for target in targets}
+
     round1_for, round1_against, round2_for, round2_against = {}, {}, {}, {}
-    for target in config.length_targets:
-        for_open, against_open, for_reb, against_reb = _texts_for_target(
-            topic_text, target, base_texts, config
-        )
+    for target in targets:
+        for_open, against_open, for_reb, against_reb = by_target[target]
         round1_for[target], round1_against[target] = for_open, against_open
         if config.rounds >= 2:
             round2_for[target], round2_against[target] = for_reb, against_reb

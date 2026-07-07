@@ -6,6 +6,7 @@ data and there is never a stale bad entry to work around.
 """
 
 import os
+import threading
 from collections.abc import Callable
 
 from openai import OpenAI
@@ -14,16 +15,21 @@ from .cache import Cache, make_key
 
 _cache = Cache()
 _client: OpenAI | None = None
+_client_lock = threading.Lock()
 
 
-# Lazily creates (and caches) the singleton OpenAI client, pointed at OpenRouter.
+# Lazily creates (and caches) the singleton OpenAI client, pointed at OpenRouter. Double-checked
+# locking so concurrent workers (run_experiment --jobs) share one client instead of racing to
+# build several. The underlying openai/httpx client is itself safe for concurrent requests.
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is not set (check your .env file)")
-        _client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+        with _client_lock:
+            if _client is None:
+                api_key = os.environ.get("OPENROUTER_API_KEY")
+                if not api_key:
+                    raise RuntimeError("OPENROUTER_API_KEY is not set (check your .env file)")
+                _client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
     return _client
 
 

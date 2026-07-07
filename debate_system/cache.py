@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
 from pathlib import Path
 
 DEFAULT_CACHE_PATH = Path(__file__).resolve().parent.parent / "cache.json"
@@ -20,6 +21,9 @@ class Cache:
     # Constructor: loads existing cache contents from disk, or starts empty.
     def __init__(self, path: Path = DEFAULT_CACHE_PATH):
         self.path = Path(path)
+        # Guards `_data` mutation + the file write so concurrent workers (see run_experiment
+        # --jobs) can't interleave a write mid-serialization or clobber each other's entries.
+        self._lock = threading.Lock()
         if self.path.exists():
             try:
                 self._data = json.loads(self.path.read_text())
@@ -31,14 +35,18 @@ class Cache:
         else:
             self._data = {}
 
-    # Getter: returns the cached value for `key`, or None if not cached.
+    # Getter: returns the cached value for `key`, or None if not cached. Lock-free: dict reads
+    # are atomic under the GIL, and only `set` (fully locked) ever mutates or serializes `_data`,
+    # so a read can never observe a half-written dict.
     def get(self, key: str) -> str | None:
         return self._data.get(key)
 
-    # Setter: stores `value` under `key` and persists the whole cache to disk.
+    # Setter: stores `value` under `key` and persists the whole cache to disk. Held under the
+    # lock so the mutation and the whole-dict serialization are one atomic step even across threads.
     def set(self, key: str, value: str) -> None:
-        self._data[key] = value
-        self._atomic_write()
+        with self._lock:
+            self._data[key] = value
+            self._atomic_write()
 
     # Writes the cache to a temp file in the same directory, then atomically renames it
     # over the real file — so an interrupted write can never leave a half-written cache.

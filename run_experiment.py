@@ -20,11 +20,18 @@ def main():
     parser.add_argument("--out", default="results/run.jsonl")
     parser.add_argument("--report", default=None, help="Markdown transcript path (default: <out> with .md extension)")
     parser.add_argument("--limit", type=int, default=None, help="Only run the first N topics")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=8,
+        help="Max concurrent API calls (default 8). Set to 1 for fully sequential; lower it if "
+        "OpenRouter starts returning 429 rate-limit errors.",
+    )
     args = parser.parse_args()
 
     load_dotenv()
     config = load_config(args.config)
-    run_experiment(config, args.out, limit=args.limit, report_path=args.report)
+    run_experiment(config, args.out, limit=args.limit, report_path=args.report, jobs=args.jobs)
     print(f"Done. Results saved to {args.out}")
 
 

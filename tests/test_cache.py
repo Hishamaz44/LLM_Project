@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -52,3 +53,22 @@ def test_corrupt_cache_file_raises_a_clear_error(tmp_path):
     path.write_text("{ this is not valid json")
     with pytest.raises(RuntimeError, match="corrupt"):
         Cache(path=path)
+
+
+def test_concurrent_sets_keep_every_entry_and_leave_valid_json(tmp_path):
+    # Many threads writing at once must not clobber each other's entries or corrupt the file mid
+    # write — the whole point of the lock added for --jobs concurrency.
+    path = tmp_path / "cache.json"
+    cache = Cache(path=path)
+    keys = [make_key("m", f"prompt-{i}", 100, 0.0, 0) for i in range(200)]
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(lambda i: cache.set(keys[i], f"value-{i}"), range(len(keys))))
+
+    # Every write survived, in memory...
+    for i, key in enumerate(keys):
+        assert cache.get(key) == f"value-{i}"
+    # ...and on disk, as valid JSON with all entries (no interleaved half-write won).
+    on_disk = json.loads(path.read_text())
+    assert len(on_disk) == len(keys)
+    assert list(tmp_path.glob("*.tmp")) == []

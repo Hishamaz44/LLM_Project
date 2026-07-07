@@ -1,6 +1,5 @@
 .env
 cache.json
-results/*.jsonl
 .venv/
 __pycache__/
 *.pyc
