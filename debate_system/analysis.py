@@ -198,3 +198,48 @@ def summary(df: pd.DataFrame) -> dict:
         "self_preference_delta": sp["delta"],
         "self_preference_comparisons": sp["n_comparisons"],
     }
+
+
+# The standard tier sizes (small<medium<big) and the two length modes, used to discover the
+# per-tier result files (results/<size>.jsonl and results/<size>_pad.jsonl) for cross-run comparison.
+TIER_SIZES = ("small", "medium", "big")
+TIER_MODES = (("generate", ""), ("pad", "_pad"))
+COMPARISON_METRICS = {
+    "order_bias": "Order bias (first − second)",
+    "flip_rate": "Winner-flip rate",
+    "length_climb": "Length climb (long − short)",
+    "length_corr": "Length–score correlation",
+    "nepotism_delta": "Nepotism Δ (self − peers)",
+}
+
+
+# Loads every tier/mode run found in `results_dir` and returns one row of headline bias metrics
+# per run — the single table behind the dashboard's size and generate-vs-pad comparisons. Only
+# files that exist are included, so a partial set (e.g. before the big tier finishes) still works.
+# `size` is an ordered category (small<medium<big) so charts/tables read in size order.
+def compare_runs(results_dir: str | Path) -> pd.DataFrame:
+    results_dir = Path(results_dir)
+    rows = []
+    for size in TIER_SIZES:
+        for mode, suffix in TIER_MODES:
+            path = results_dir / f"{size}{suffix}.jsonl"
+            if not path.exists():
+                continue
+            df = load_results(path)
+            le = length_effect(df)
+            rows.append(
+                {
+                    "size": size,
+                    "mode": mode,
+                    "order_bias": order_effect(df)["first_minus_second"],
+                    "flip_rate": flip_rate(df),
+                    "length_climb": le["score_climb"],
+                    "length_corr": le["corr_length_score"],
+                    "nepotism_delta": self_preference_effect(df)["delta"],
+                }
+            )
+    frame = pd.DataFrame(rows, columns=["size", "mode", *COMPARISON_METRICS])
+    if not frame.empty:
+        frame["size"] = pd.Categorical(frame["size"], categories=TIER_SIZES, ordered=True)
+        frame = frame.sort_values(["size", "mode"]).reset_index(drop=True)
+    return frame

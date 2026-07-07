@@ -146,3 +146,22 @@ def test_self_preference_skips_when_no_peer_judge(tmp_path):
     rec = _nep_rec("for_first", "A", "B", [("A", 10, 5), ("A", 9, 5), ("A", 8, 5)])
     sp = analysis.self_preference_effect(_df([rec], tmp_path))
     assert sp["n_comparisons"] == 0
+
+
+def test_compare_runs_one_row_per_tier_file_in_size_order(tmp_path):
+    recs = [_rec(length_target=60, for_avg=10, against_avg=10),
+            _rec(length_target=180, for_avg=12, against_avg=12)]
+    for name in ("small", "small_pad", "big"):  # medium.jsonl absent on purpose -> skipped
+        (tmp_path / f"{name}.jsonl").write_text("\n".join(json.dumps(r) for r in recs))
+
+    cmp = analysis.compare_runs(tmp_path)
+
+    # One row per existing file, sorted small<medium<big (not alphabetical), generate before pad.
+    assert list(zip(cmp["size"].astype(str), cmp["mode"])) == [
+        ("small", "generate"), ("small", "pad"), ("big", "generate")
+    ]
+    assert set(analysis.COMPARISON_METRICS).issubset(cmp.columns)
+
+
+def test_compare_runs_empty_when_no_tier_files(tmp_path):
+    assert analysis.compare_runs(tmp_path).empty

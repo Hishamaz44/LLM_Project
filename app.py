@@ -360,3 +360,84 @@ else:
         ]
     )
     st.dataframe(judges, use_container_width=True, hide_index=True)
+
+# --- Cross-run comparison (loads every tier run, ignores the sidebar file selector) ------
+SIZE_ORDER = list(analysis.TIER_SIZES)
+
+
+# Cached on the tier files' mtimes so re-running an experiment refreshes the comparison.
+@st.cache_data
+def load_comparison(key: tuple) -> pd.DataFrame:
+    return analysis.compare_runs(RESULTS_DIR)
+
+
+cmp_key = tuple(f"{p}:{p.stat().st_mtime}" for p in sorted(RESULTS_DIR.glob("*.jsonl")))
+cmp_df = load_comparison(cmp_key)
+
+# --- 6. Compare across model sizes -------------------------------------------------
+st.header("6. Compare across model sizes — all runs at once")
+st.markdown(
+    "Everything above analyzes the **one** file picked in the sidebar. This section and the next "
+    "instead load **every** tier run in `results/` — small, medium, big, in both generate and pad "
+    "mode — and line their headline bias metrics up side by side. The core question of the size "
+    "sweep: **does a bigger, more capable judge model resist these biases better?** Read each chart "
+    "left→right across the sizes; the two bars per size are generate vs pad mode."
+)
+
+if cmp_df.empty:
+    st.info(
+        "No tier runs found in `results/`. Expected files like `small.jsonl`, `medium_pad.jsonl`, "
+        "`big.jsonl` — run the `config_*.yaml` tier configs first."
+    )
+else:
+    st.caption("Runs loaded: " + ", ".join(f"{r.size}/{r.mode}" for r in cmp_df.itertuples()))
+    table = cmp_df.rename(columns={"size": "Size", "mode": "Mode", **analysis.COMPARISON_METRICS})
+    st.dataframe(table.set_index(["Size", "Mode"]).round(3), use_container_width=True)
+
+    for col, label in analysis.COMPARISON_METRICS.items():
+        pivot = (
+            cmp_df.pivot(index="size", columns="mode", values=col)
+            .reindex(SIZE_ORDER)
+            .dropna(how="all")
+        )
+        st.markdown(f"**{label}** — by model size (bars: generate vs pad)")
+        st.bar_chart(pivot, stack=False)
+
+# --- 7. Generate vs Pad ------------------------------------------------------------
+st.header("7. Generate vs Pad — how much length bias is *pure* verbosity?")
+st.markdown(
+    "Pad mode keeps an argument's content fixed and only inflates its word count, so any length "
+    "effect that **survives** padding is verbosity bias in its purest form — the judge rewarding "
+    "length for its own sake. Below, the length metrics are grouped by **mode** so you can read the "
+    "generate→pad drop directly, and the table quantifies how much of each size's length climb was "
+    "real content vs. pure verbosity."
+)
+if cmp_df.empty:
+    st.info("No tier runs found — see section 6.")
+else:
+    for col in ("length_climb", "length_corr"):
+        pivot = (
+            cmp_df.pivot(index="mode", columns="size", values=col)
+            .reindex(["generate", "pad"])
+            .dropna(how="all")
+        )
+        st.markdown(f"**{analysis.COMPARISON_METRICS[col]}** — generate vs pad (bars: model sizes)")
+        st.bar_chart(pivot, stack=False)
+
+    climb = cmp_df.pivot(index="size", columns="mode", values="length_climb").reindex(SIZE_ORDER)
+    if {"generate", "pad"}.issubset(climb.columns):
+        survived = pd.DataFrame(
+            {
+                "Generate climb": climb["generate"].round(2),
+                "Pad climb (pure verbosity)": climb["pad"].round(2),
+                "Verbosity share (pad ÷ generate)": (climb["pad"] / climb["generate"]).round(2),
+            }
+        ).dropna(how="all")
+        st.markdown("**How much of the length climb is pure verbosity?**")
+        st.dataframe(survived, use_container_width=True)
+        st.caption(
+            "**Pad climb** is the length effect with content held fixed — pure verbosity bias. "
+            "**Verbosity share** = pad ÷ generate: near **0** means the length effect was mostly real "
+            "content (*longer genuinely says more*); near **1** means the judges were rewarding length "
+            "itself. Negative values mean scores actually dropped with length in that run."
+        )
